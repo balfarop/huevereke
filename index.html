@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Huevereke — Planificador de comidas</title>
+<style>
+:root{
+  --cream:#fffaf0; --paper:#fffdf8; --ink:#243247; --muted:#667085;
+  --blue:#173b67; --orange:#f59b23; --yellow:#ffd45c; --green:#7eaf58;
+  --line:#eadfce; --shadow:0 18px 45px rgba(36,50,71,.10);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+color:var(--ink);background:var(--cream);line-height:1.5}
+a{text-decoration:none;color:inherit}
+.container{width:min(1120px,92%);margin:auto}
+nav{height:76px;display:flex;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:12px;font-weight:900;font-size:1.35rem}
+.brand img{width:48px;height:48px;object-fit:contain}
+.navlinks{display:flex;gap:24px;font-weight:700;color:#526075}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:13px 20px;border-radius:14px;
+font-weight:800;border:0;cursor:pointer}
+.btn-primary{background:var(--blue);color:white;box-shadow:0 8px 18px rgba(23,59,103,.18)}
+.btn-secondary{background:white;border:1px solid var(--line);color:var(--blue)}
+.hero{padding:52px 0 70px;display:grid;grid-template-columns:1.02fr .98fr;gap:40px;align-items:center}
+.badge{display:inline-block;background:#fff1cf;color:#8b5b00;padding:8px 13px;border-radius:999px;font-size:.84rem;font-weight:800}
+h1{font-size:clamp(2.8rem,6vw,5.2rem);line-height:.98;letter-spacing:-.055em;margin:18px 0}
+h1 span{color:var(--orange)}
+.hero p{font-size:1.16rem;color:var(--muted);max-width:600px}
+.actions{display:flex;gap:12px;margin-top:26px;flex-wrap:wrap}
+.hero-art{display:flex;justify-content:center}
+.hero-art img{width:min(520px,100%);filter:drop-shadow(0 25px 22px rgba(36,50,71,.12))}
+.section{padding:72px 0}
+.section h2{text-align:center;font-size:2.25rem;letter-spacing:-.03em;margin:0 0 10px}
+.section-lead{text-align:center;color:var(--muted);max-width:650px;margin:0 auto 34px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:22px;padding:26px;box-shadow:var(--shadow)}
+.icon{font-size:2rem}.card h3{margin:12px 0 6px}.card p{color:var(--muted);margin:0}
+.planner-wrap{background:white;border:1px solid var(--line);border-radius:28px;padding:28px;box-shadow:var(--shadow)}
+.planner{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.day{border:1px solid var(--line);border-radius:18px;padding:14px;background:#fffdf9}
+.day h3{margin:0 0 12px;font-size:.95rem}
+.meal{background:#f7f2e8;border-radius:12px;padding:10px;margin-top:8px;font-size:.86rem}
+.meal strong{display:block;font-size:.72rem;text-transform:uppercase;color:#8a7d69;margin-bottom:2px}
+.shopping{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:center}
+.list{background:#fff;border:1px solid var(--line);border-radius:24px;padding:24px}
+.list-item{display:flex;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid #f0e9dc}
+.list-item:last-child{border-bottom:0}.check{width:19px;height:19px;border:2px solid #d8c9b3;border-radius:6px}
+.cta{background:var(--blue);color:white;border-radius:30px;padding:46px;text-align:center}
+.cta p{color:#dbe6f4;max-width:650px;margin:10px auto 24px}
+footer{padding:34px 0;color:#7b8493;font-size:.9rem}
+@media(max-width:800px){
+ .navlinks{display:none}.hero{grid-template-columns:1fr;text-align:center}.hero p{margin:auto}
+ .actions{justify-content:center}.cards{grid-template-columns:1fr}.planner{grid-template-columns:1fr 1fr}
+ .shopping{grid-template-columns:1fr}.hero-art{order:-1}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="container">
+    <nav>
+      <a class="brand" href="#"><img src="huevereke-logo.png" alt="Huevereke"><span>Huevereke</span></a>
+      <div class="navlinks">
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#planner">Plan semanal</a>
+        <a href="#lista">Lista de compras</a>
+      </div>
+      <a class="btn btn-primary" href="#empezar">Empezar</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="container hero">
+  <div>
+    <span class="badge">🥚 Tu compañero para organizar las comidas</span>
+    <h1>Planifica menos.<br><span>Disfruta más.</span></h1>
+    <p>Huevereke convierte tus ideas de comidas en una semana organizada: platos, ingredientes y lista de compras, todo en un solo lugar.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="#planner">Ver mi semana</a>
+      <a class="btn btn-secondary" href="#como-funciona">Conocer Huevereke</a>
+    </div>
+  </div>
+  <div class="hero-art"><img src="huevereke-logo.png" alt="Mascota Huevereke"></div>
+</section>
+
+<section id="como-funciona" class="section">
+  <div class="container">
+    <h2>Todo empieza con un buen plan</h2>
+    <p class="section-lead">Una experiencia sencilla para decidir qué comer, comprar lo necesario y llegar a la semana con menos improvisación.</p>
+    <div class="cards">
+      <article class="card"><div class="icon">🗓️</div><h3>Planifica</h3><p>Organiza desayunos, almuerzos y cenas por día de la semana.</p></article>
+      <article class="card"><div class="icon">🛒</div><h3>Compra</h3><p>Convierte tus comidas en una lista práctica de ingredientes.</p></article>
+      <article class="card"><div class="icon">🍳</div><h3>Cocina</h3><p>Ten claro qué toca preparar y reduce las decisiones de último minuto.</p></article>
+    </div>
+  </div>
+</section>
+
+<section id="planner" class="section">
+  <div class="container">
+    <h2>Así se ve tu semana</h2>
+    <p class="section-lead">Un ejemplo de cómo Huevereke puede mantener tus comidas ordenadas.</p>
+    <div class="planner-wrap">
+      <div class="planner">
+        <div class="day"><h3>Lunes</h3><div class="meal"><strong>Almuerzo</strong>Pollo al horno</div><div class="meal"><strong>Cena</strong>Ensalada + tortilla</div></div>
+        <div class="day"><h3>Martes</h3><div class="meal"><strong>Almuerzo</strong>Pescado con arroz</div><div class="meal"><strong>Cena</strong>Sopa de verduras</div></div>
+        <div class="day"><h3>Miércoles</h3><div class="meal"><strong>Almuerzo</strong>Lentejas + huevo</div><div class="meal"><strong>Cena</strong>Sandwich casero</div></div>
+        <div class="day"><h3>Jueves</h3><div class="meal"><strong>Almuerzo</strong>Pasta con pollo</div><div class="meal"><strong>Cena</strong>Crema de verduras</div></div>
+        <div class="day"><h3>Viernes</h3><div class="meal"><strong>Almuerzo</strong>Arroz chaufa</div><div class="meal"><strong>Cena</strong>Pizza casera</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="lista" class="section">
+  <div class="container shopping">
+    <div>
+      <span class="badge">🛒 Lista inteligente</span>
+      <h2 style="text-align:left;margin-top:14px">Del menú al supermercado.</h2>
+      <p class="section-lead" style="text-align:left;margin-left:0">La planificación no termina cuando eliges los platos. Huevereke te ayuda a convertirlos en una lista de compras clara.</p>
+    </div>
+    <div class="list">
+      <div class="list-item"><span class="check"></span> Pechuga de pollo</div>
+      <div class="list-item"><span class="check"></span> Tomates</div>
+      <div class="list-item"><span class="check"></span> Brócoli</div>
+      <div class="list-item"><span class="check"></span> Arroz</div>
+      <div class="list-item"><span class="check"></span> Huevos</div>
+      <div class="list-item"><span class="check"></span> Zanahorias</div>
+    </div>
+  </div>
+</section>
+
+<section id="empezar" class="section">
+  <div class="container">
+    <div class="cta">
+      <h2>Haz que la semana empiece con un plan.</h2>
+      <p>Huevereke está pensado para que organizar las comidas sea simple, visual y hasta divertido.</p>
+      <a class="btn" style="background:white;color:var(--blue)" href="#planner">Empezar a planificar</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="container">© 2026 Huevereke · Planificación de comidas hecha fácil.</div>
+</footer>
+</body>
+</html>
