@@ -791,6 +791,14 @@ def _start_turn(session: ConversationSession, prefix: str) -> None:
                             _run_in_background(ensure_fresh(force=True))
                         await session.event_queue.put({"close_prompt": session.close_signal})
                         session.close_signal = None
+        except Exception as exc:  # noqa: BLE001
+            # Un fallo dentro de esta tarea antes terminaba el turno en
+            # silencio (la web solo veía el fin del stream, sin nada que
+            # mostrar). Ahora queda en el log y llega a la pantalla.
+            logger.exception("%sFallo procesando el turno del agente", prefix)
+            await session.event_queue.put(
+                {"error": f"Se interrumpió la conversación ({type(exc).__name__}: {exc})"}
+            )
         finally:
             await session.event_queue.put(_TURN_DONE)
 

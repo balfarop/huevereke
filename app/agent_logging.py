@@ -15,6 +15,22 @@ from claude_agent_sdk import (
 )
 
 
+def _safe_print(texto: str) -> None:
+    """print() que nunca lanza por la codificación de la consola. Con la
+    salida redirigida (o una consola cp1252 en Windows) los emojis del log
+    reventaban con UnicodeEncodeError, y como esto corre dentro de la tarea
+    del turno, el turno entero moría en silencio. El log es secundario: si
+    no se puede escribir tal cual, se escribe con los caracteres dudosos
+    reemplazados."""
+    try:
+        print(texto, flush=True)
+    except UnicodeEncodeError:
+        import sys
+
+        codificacion = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(texto.encode(codificacion, errors="replace").decode(codificacion), flush=True)
+
+
 def _tool_result_text(content) -> str:
     if isinstance(content, str):
         return content
@@ -33,11 +49,11 @@ def log_message(message, prefix: str = "") -> None:
     if isinstance(message, AssistantMessage):
         for block in message.content:
             if isinstance(block, ThinkingBlock):
-                print(f"{prefix}🤔 [pensando] {block.thinking}", flush=True)
+                _safe_print(f"{prefix}🤔 [pensando] {block.thinking}")
             elif isinstance(block, ToolUseBlock):
-                print(f"{prefix}🔧 [herramienta] {block.name}({block.input})", flush=True)
+                _safe_print(f"{prefix}🔧 [herramienta] {block.name}({block.input})")
             elif isinstance(block, TextBlock):
-                print(f"{prefix}💬 {block.text}", flush=True)
+                _safe_print(f"{prefix}💬 {block.text}")
 
     elif isinstance(message, UserMessage):
         for block in message.content:
@@ -45,13 +61,12 @@ def log_message(message, prefix: str = "") -> None:
                 marca = "❌" if block.is_error else "✅"
                 resultado = _tool_result_text(block.content)
                 preview = resultado[:300] + ("…" if len(resultado) > 300 else "")
-                print(f"{prefix}{marca} [resultado] {preview}", flush=True)
+                _safe_print(f"{prefix}{marca} [resultado] {preview}")
 
     elif isinstance(message, ResultMessage):
         costo = f"${message.total_cost_usd:.4f}" if message.total_cost_usd else "N/D"
-        print(
+        _safe_print(
             f"{prefix}— fin del turno · {message.num_turns} paso(s) · "
             f"{message.duration_ms}ms · costo aprox: {costo} · "
-            f"session_id: {message.session_id} —\n",
-            flush=True,
+            f"session_id: {message.session_id} —\n"
         )
