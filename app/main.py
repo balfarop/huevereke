@@ -1,7 +1,9 @@
+import asyncio
 import json
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -11,11 +13,25 @@ from starlette.middleware.sessions import SessionMiddleware
 from .agent_service import close_session, continue_reply, stream_reply, submit_answer
 from .auth import current_user_email, is_email_allowed, oauth, require_login
 from .config import settings
+from .menu_cache.sync import ensure_fresh
 from .notion_direct import fetch_recent_weeks
 
 logger = logging.getLogger("menu_semanal")
 
-app = FastAPI(title="Huevereke")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Pone el caché local al día en segundo plano (no retrasa el arranque):
+    # crea tablas nuevas del esquema y re-sincroniza si está viejo. Ya no
+    # hace falta correr build_cache.py a mano para el uso normal.
+    refresh_task = asyncio.create_task(ensure_fresh())
+    try:
+        yield
+    finally:
+        refresh_task.cancel()
+
+
+app = FastAPI(title="Huevereke", lifespan=lifespan)
 
 app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET)
 

@@ -9,6 +9,8 @@ suficiente. Si algún día escalas a más réplicas, esto tendría que migrar
 a almacenamiento externo (Redis, etc.) o session affinity.
 """
 import asyncio
+import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -22,6 +24,7 @@ from claude_agent_sdk import (
     PermissionResultDeny,
     ResultMessage,
     TextBlock,
+    ThinkingBlock,
     ToolUseBlock,
 )
 
@@ -29,7 +32,10 @@ from .agent_logging import log_message
 from .config import settings
 from .conversation_tools import build_conversation_tools_server
 from .menu_cache.sdk_tools import menu_cache_server
+from .menu_cache.sync import ensure_fresh
 from .web_context_tools import web_context_server
+
+logger = logging.getLogger("menu_semanal")
 
 # Palabras que, en el NOMBRE de una herramienta de Notion (siempre contiene
 # "notion" — ver mcp_servers["notion"] en build_options, expuesto como
@@ -49,6 +55,70 @@ def _is_notion_tool(tool_name: str) -> bool:
 def _is_read_only_notion_tool(tool_name: str) -> bool:
     lowered = tool_name.lower()
     return any(hint in lowered for hint in _NOTION_READ_ONLY_HINTS)
+
+# Texto genérico (sin nombres de herramientas) que se muestra en la línea de
+# estado de la web mientras el agente trabaja — ver {"status": ...} en
+# drain_messages. Se busca por fragmento del nombre de la herramienta; la
+# primera coincidencia gana, así que lo más específico va primero.
+_STATUS_POR_HERRAMIENTA = (
+    ("mostrar_reporte", "Armando el reporte…"),
+    ("cerrar_conversacion", "Terminando…"),
+    ("precargar_contexto", "Revisando tu historial de platos y semanas…"),
+    ("semanas_recientes", "Revisando las últimas semanas…"),
+    ("frecuencia_consumo_familiar", "Revisando lo que consume la familia…"),
+    ("receta_insumo", "Calculando los insumos de las recetas…"),
+    ("combos_ensalada", "Buscando acompañamientos…"),
+    ("platos_principales", "Revisando el catálogo de platos…"),
+    ("buscar_platos", "Buscando platos…"),
+    ("guardar_notas_de_prueba", "Guardando las notas de la prueba…"),
+    ("Skill", "Preparando la propuesta…"),
+)
+
+
+_background_tasks: set = set()
+
+
+def _run_in_background(coro) -> None:
+    """Lanza una corrutina sin esperarla, guardando la referencia para que
+    el recolector de basura no la cancele a mitad de camino."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+def _status_for_tool(tool_name: str) -> Optional[str]:
+    """Mensaje genérico para la línea de estado, o None si esta herramienta
+    no merece cambiar lo que ya se muestra (ej. ToolSearch, interno)."""
+    if tool_name == "ToolSearch":
+        return None
+    for fragmento, mensaje in _STATUS_POR_HERRAMIENTA:
+        if fragmento in tool_name:
+            return mensaje
+    if _is_notion_tool(tool_name):
+        if _is_read_only_notion_tool(tool_name):
+            return "Consultando Notion…"
+        return "Guardando en Notion…"
+    return "Trabajando en tu menú…"
+
+
+# Una pregunta que habla de revisar/confirmar la propuesta, el reporte o la
+# lista de compras exige que el usuario YA haya visto ese contenido (ver
+# _violacion_reporte_visible).
+_PREGUNTA_SOBRE_REPORTE = re.compile(
+    r"reporte|versi[oó]n|lista de compras|propuesta detallada|resumen final",
+    re.IGNORECASE,
+)
+# Largo mínimo de un texto para considerarlo "contenido mostrado" (una
+# frase de transición como "Ahora armo el menú" no cuenta).
+_MIN_CHARS_CONTENIDO_VISIBLE = 200
+
+
+def _texto_de_preguntas(input_data: dict) -> str:
+    partes = []
+    for q in (input_data or {}).get("questions", []) or []:
+        partes.append(str(q.get("question", "")))
+    return "\n".join(partes)
+
 
 # Sentinel para señalar "se acabaron los eventos de este turno" en
 # event_queue (ver stream_reply). No es un dict real, así que nunca puede
@@ -181,6 +251,22 @@ class ConversationSession:
     # avisar para no repetirlo en un turno futuro de la misma sesión (si el
     # usuario sigue escribiendo en vez de cerrar).
     close_signal: Optional[dict] = None
+    # Garantía de que el usuario VEA el reporte antes de que se le pida
+    # revisarlo o confirmarlo. El razonamiento del modelo y los resultados de
+    # herramientas no llegan a la web: en una corrida real el agente redactó
+    # "la versión ajustada" solo en su razonamiento y preguntó igual "¿todo
+    # bien con esta versión?", tres veces seguidas. `shown_since_input` pasa
+    # a True cuando se manda a la web un texto largo o un reporte, y vuelve a
+    # False con cada mensaje o respuesta del usuario. Si el agente intenta
+    # preguntar por el reporte con esto en False, can_use_tool rechaza la
+    # pregunta una vez (`denied_since_input`) y le pide mostrarlo primero.
+    shown_since_input: bool = False
+    denied_since_input: bool = False
+    # Un Future por tool_use_id de AskUserQuestion: drain_messages (que ve
+    # los bloques en el orden real) decide si la pregunta procede o se
+    # rechaza (None = procede, str = mensaje de rechazo) y can_use_tool
+    # espera ese veredicto antes de pausar por la respuesta del usuario.
+    question_verdicts: dict[str, asyncio.Future] = field(default_factory=dict)
 
 
 _sessions: dict[str, ConversationSession] = {}
@@ -250,6 +336,18 @@ CHANNEL_CONTEXT = (
     "confirmo\" / \"Quiero cambiar algo\") — el campo de texto libre ya "
     "cubre cualquier ajuste puntual que quieran pedir en vez de un "
     "rechazo total.\n"
+    "- **El usuario SOLO ve tus mensajes de texto, las tarjetas de "
+    "mostrar_reporte y tus preguntas. NO ve tu razonamiento ni los "
+    "resultados de herramientas.** Cada vez que la propuesta, la lista de "
+    "compras o el reporte final cambie (la primera vez, tras cada ajuste "
+    "que pida y antes del reporte final), muéstrale el contenido COMPLETO y "
+    "actualizado con mcp__conversation__mostrar_reporte (titulo + contenido "
+    "en markdown) o como texto, SIEMPRE antes de la AskUserQuestion que le "
+    "pide revisarlo o confirmarlo. Nunca preguntes \"¿todo bien con esta "
+    "versión?\" sobre algo que no le mostraste, y nunca digas \"te lo "
+    "reenvío\" o \"te lo muestro\" sin que ese contenido vaya en esa "
+    "misma respuesta. Una pregunta sobre el reporte o la versión sin "
+    "contenido visible previo será rechazada.\n"
     "- Cuando esta propuesta (real o de prueba) llegue a su fin — guardado "
     "en Notion completo (paso 7) o, en modo prueba, apenas el usuario dé "
     "por cerrada la corrida — llama una sola vez a "
@@ -350,6 +448,21 @@ def _make_web_can_use_tool(session: ConversationSession):
             session.pending_question_payloads[tool_use_id] = payload_future
         if not payload_future.done():
             payload_future.set_result(payload)
+
+        # drain_messages decide, con el orden real de los bloques, si esta
+        # pregunta procede (ver ConversationSession.shown_since_input).
+        verdict_future = session.question_verdicts.get(tool_use_id)
+        if verdict_future is None:
+            verdict_future = loop.create_future()
+            session.question_verdicts[tool_use_id] = verdict_future
+        try:
+            rechazo = await verdict_future
+        finally:
+            session.question_verdicts.pop(tool_use_id, None)
+        if rechazo:
+            session.pending_answers.pop(question_id, None)
+            session.pending_question_payloads.pop(tool_use_id, None)
+            return PermissionResultDeny(message=rechazo)
 
         try:
             answers = await answer_future
@@ -468,6 +581,8 @@ def submit_answer(session_id: str, question_id: str, answers: dict) -> tuple[boo
     if not future or future.done():
         return False, False
     future.set_result(answers)
+    session.shown_since_input = False
+    session.denied_since_input = False
     remaining = [
         qid
         for qid, fut in session.pending_answers.items()
@@ -561,7 +676,68 @@ def _start_turn(session: ConversationSession, prefix: str) -> None:
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             await session.event_queue.put({"text": block.text})
+                            if len(block.text.strip()) >= _MIN_CHARS_CONTENIDO_VISIBLE:
+                                session.shown_since_input = True
+                        elif isinstance(block, ThinkingBlock):
+                            # El razonamiento NO se muestra (ni debe), pero
+                            # avisamos que el agente sigue trabajando.
+                            await session.event_queue.put({"status": "Pensando…"})
+                        elif (
+                            isinstance(block, ToolUseBlock)
+                            and block.name == "mcp__conversation__mostrar_reporte"
+                        ):
+                            # El reporte viaja en la propia llamada: lo
+                            # mostramos acá, en el orden real de los
+                            # bloques, y no desde la herramienta.
+                            args = block.input or {}
+                            await session.event_queue.put(
+                                {
+                                    "report": {
+                                        "titulo": str(args.get("titulo") or "Reporte"),
+                                        "contenido": str(args.get("contenido") or ""),
+                                    }
+                                }
+                            )
+                            session.shown_since_input = True
+                        elif isinstance(block, ToolUseBlock) and block.name != "AskUserQuestion":
+                            estado = _status_for_tool(block.name)
+                            if estado:
+                                await session.event_queue.put({"status": estado})
                         elif isinstance(block, ToolUseBlock) and block.name == "AskUserQuestion":
+                            # Veredicto ANTES de mostrar la pregunta: si habla
+                            # del reporte/versión/lista y el usuario todavía
+                            # no vio ese contenido, se rechaza (una vez) y el
+                            # agente debe mostrarlo primero. can_use_tool
+                            # espera este veredicto (ver question_verdicts).
+                            verdict_future = session.question_verdicts.get(block.id)
+                            if verdict_future is None:
+                                verdict_future = asyncio.get_event_loop().create_future()
+                                session.question_verdicts[block.id] = verdict_future
+                            rechazo = None
+                            if (
+                                not session.shown_since_input
+                                and not session.denied_since_input
+                                and _PREGUNTA_SOBRE_REPORTE.search(_texto_de_preguntas(block.input))
+                            ):
+                                session.denied_since_input = True
+                                rechazo = (
+                                    "Tu pregunta no se mostró: el usuario todavía NO ha visto "
+                                    "el contenido sobre el que preguntas — tu razonamiento y "
+                                    "tus resultados de herramientas no se ven en pantalla. "
+                                    "Primero muéstrale el menú/reporte/lista de compras "
+                                    "COMPLETO y actualizado con "
+                                    "mcp__conversation__mostrar_reporte (o como texto), y "
+                                    "después vuelve a hacer la pregunta."
+                                )
+                                logger.warning(
+                                    "%sAskUserQuestion rechazada: pregunta por el reporte sin "
+                                    "contenido visible previo.",
+                                    prefix,
+                                )
+                            if not verdict_future.done():
+                                verdict_future.set_result(rechazo)
+                            if rechazo:
+                                continue
                             # can_use_tool puede dispararse antes o después de
                             # que lleguemos acá — cualquiera que llegue primero
                             # crea el Future, el otro lo completa/espera (ver
@@ -609,6 +785,10 @@ def _start_turn(session: ConversationSession, prefix: str) -> None:
                     # sesión en vez de cerrarla, un futuro turno no debe
                     # repetir este aviso solo porque el flag quedó pegado.
                     if session.close_signal is not None:
+                        if session.close_signal.get("guardado"):
+                            # Se acaba de guardar una Semana en Notion: el
+                            # caché la necesita para la próxima conversación.
+                            _run_in_background(ensure_fresh(force=True))
                         await session.event_queue.put({"close_prompt": session.close_signal})
                         session.close_signal = None
         finally:
@@ -653,7 +833,13 @@ async def stream_reply(session_id: str, user_message: str, test_mode: bool = Fal
                 context = TEST_MODE_CONTEXT + context
             outgoing_message = context + "\nMi mensaje real empieza acá:\n" + user_message
             session.is_new = False
+            # Caché local al día para esta conversación, en segundo plano:
+            # solo vuelve a sincronizar si pasó más de
+            # MENU_CACHE_MAX_AGE_MINUTES desde la última vez.
+            _run_in_background(ensure_fresh())
 
+        session.shown_since_input = False
+        session.denied_since_input = False
         await session.client.query(outgoing_message)
         _start_turn(session, prefix)
 

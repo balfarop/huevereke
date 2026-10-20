@@ -25,6 +25,10 @@ en las dos páginas) — el gotcha de reglas-interaccion.md sobre el lado
 recíproco no siendo consultable es específico de la herramienta SQL del
 conector MCP, no de la API REST.
 """
+import asyncio
+import logging
+from datetime import datetime, timezone
+
 import httpx
 
 from ..config import settings
@@ -37,7 +41,9 @@ from ..notion_direct import (
     _select_text,
     _title_text,
 )
-from .schema import get_connection
+from .schema import get_connection, init_db
+
+logger = logging.getLogger("menu_semanal.cache")
 
 
 def _rich_text(prop: dict | None) -> str:
@@ -316,3 +322,58 @@ async def refresh_cache(db_path: str | None = None) -> dict[str, int]:
     finally:
         conn.close()
     return counts
+
+
+# Evita que dos refrescos (ej. arranque + primera conversación) corran a la
+# vez: el segundo espera al primero y, al entrar, ve que ya está fresco.
+_refresh_lock = asyncio.Lock()
+
+
+def _minutes_since_last_sync(db_path: str) -> float | None:
+    """Minutos desde la última sincronización exitosa, o None si nunca hubo
+    una (caché recién creado o vacío)."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT value FROM _sync_meta WHERE key = 'last_synced_at'"
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or not row["value"]:
+        return None
+    # SQLite datetime('now') guarda UTC como "YYYY-MM-DD HH:MM:SS".
+    last = datetime.strptime(row["value"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - last).total_seconds() / 60
+
+
+async def ensure_fresh(max_age_minutes: float | None = None, force: bool = False) -> bool:
+    """Deja el caché al día sin que nadie corra build_cache.py a mano.
+
+    Crea/actualiza el esquema (init_db es idempotente — así una tabla nueva
+    como semana_platos_real aparece sola) y vuelve a sincronizar desde
+    Notion si el caché nunca se sincronizó, tiene más de `max_age_minutes`
+    (default: settings.MENU_CACHE_MAX_AGE_MINUTES) o se pide `force`.
+
+    Nunca lanza: si Notion no responde o falta configuración, deja el caché
+    como estaba (los datos viejos siguen siendo mejores que ninguno) y lo
+    registra en el log. Devuelve True si sincronizó.
+    """
+    if max_age_minutes is None:
+        max_age_minutes = settings.MENU_CACHE_MAX_AGE_MINUTES
+    db_path = settings.MENU_CACHE_DB_PATH
+    async with _refresh_lock:
+        try:
+            init_db(db_path)
+            age = _minutes_since_last_sync(db_path)
+            if not force and age is not None and age < max_age_minutes:
+                return False
+            motivo = "nunca sincronizado" if age is None else f"hace {age:.0f} min"
+            logger.info("Actualizando caché del menú desde Notion (%s)...", motivo)
+            counts = await refresh_cache(db_path)
+            logger.info("Caché del menú actualizado: %s", counts)
+            return True
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "No se pudo actualizar el caché del menú; se sigue con los datos anteriores."
+            )
+            return False

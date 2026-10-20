@@ -112,6 +112,10 @@ class Settings:
     MENU_CACHE_DB_PATH: str = os.environ.get("MENU_CACHE_DB_PATH") or os.path.join(
         PROJECT_ROOT, "menu_cache.sqlite3"
     )
+    # Antigüedad máxima del caché antes de volver a sincronizarlo
+    # automáticamente (al arrancar la app, al empezar una conversación y al
+    # guardar una Semana). build_cache.py sigue sirviendo para forzarlo.
+    MENU_CACHE_MAX_AGE_MINUTES: int = int(os.environ.get("MENU_CACHE_MAX_AGE_MINUTES", "30"))
 
     # NOTA sobre el contador de consumo de la UI (ver agent_service.py):
     # se probó agregar acá una constante de "crédito mensual del Agent SDK"

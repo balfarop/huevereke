@@ -123,31 +123,160 @@ function addMessage(text, role) {
   const div = document.createElement("div");
   div.className = `msg ${role}`;
   div.textContent = text;
-  chatInnerEl.appendChild(div);
+  appendToChat(div);
   chatEl.scrollTop = chatEl.scrollHeight;
   return div;
 }
 
-function showThinking() {
-  const div = document.createElement("div");
-  div.className = "msg agent thinking";
-  div.innerHTML = `
-    <img src="/static/img/huevereke_pensando.png" alt="" class="thinking-avatar" />
-    <span class="thinking-label">Pensando</span>
-    <span class="thinking-dots"><span></span><span></span><span></span></span>
-  `;
-  chatInnerEl.appendChild(div);
-  chatEl.scrollTop = chatEl.scrollHeight;
-  return div;
+// ---------- Línea de estado ("Pensando…", "Revisando las últimas semanas…") ----------
+//
+// Un solo indicador fijo al pie del chat, desacoplado de las burbujas de
+// mensajes: aparece en cuanto el usuario manda un mensaje o responde una
+// pregunta, y se oculta recién cuando el agente le devuelve la palabra (una
+// pregunta, el aviso de cierre o el fin del turno). El backend va cambiando
+// el texto con eventos {"status": "..."} mientras trabaja. Antes el
+// indicador era una burbuja cuyo ciclo de vida dependía del orden de los
+// eventos, y a veces se perdía entre pregunta y pregunta.
+let statusEl = null;
+let busy = false;
+
+function getStatusEl() {
+  if (!statusEl) {
+    statusEl = document.createElement("div");
+    statusEl.className = "msg-status";
+    statusEl.setAttribute("role", "status");
+    statusEl.setAttribute("aria-live", "polite");
+    statusEl.innerHTML = `
+      <span class="thinking-dots"><span></span><span></span><span></span></span>
+      <span class="status-text"></span>
+    `;
+  }
+  return statusEl;
 }
 
-// Burbuja "pensando"/respuesta activa del turno en curso — compartida
-// entre sendMessage (POST /chat) y el flujo de responder una pregunta
-// (POST /chat/answer, cuando le toca retomar el streaming): ambas pueden
-// terminar escribiendo en la misma burbuja, según cuál conexión sea la
-// que efectivamente reciba la continuación del turno.
+function setBusy(text) {
+  busy = true;
+  const el = getStatusEl();
+  el.querySelector(".status-text").textContent = text || "Pensando…";
+  chatInnerEl.appendChild(el); // appendChild de un nodo existente lo mueve al final
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function clearBusy() {
+  busy = false;
+  if (statusEl && statusEl.parentNode) statusEl.remove();
+}
+
+// Agrega un nodo al chat SIEMPRE antes de la línea de estado, para que el
+// indicador quede como último elemento mientras el agente trabaja.
+function appendToChat(el) {
+  if (statusEl && statusEl.parentNode === chatInnerEl) {
+    chatInnerEl.insertBefore(el, statusEl);
+  } else {
+    chatInnerEl.appendChild(el);
+  }
+}
+
+// ---------- Markdown mínimo y seguro para los mensajes del agente ----------
+//
+// Escapa TODO el HTML primero y solo después reintroduce un puñado de
+// etiquetas propias: **negrita**, "- " / "1. " para listas, "# " para
+// títulos y párrafos. El modelo escribe así y antes se veía con los
+// asteriscos crudos.
+function renderMarkdown(src) {
+  const inline = (t) =>
+    escapeHtml(t).replace(/[*][*](.+?)[*][*]/g, "<strong>$1</strong>");
+  const lines = String(src).replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let para = [];
+  let list = null; // "ul" | "ol" | null
+
+  const flushPara = () => {
+    if (para.length) html += `<p>${para.map(inline).join("<br>")}</p>`;
+    para = [];
+  };
+  const closeList = () => {
+    if (list) html += `</${list}>`;
+    list = null;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushPara();
+      closeList();
+      continue;
+    }
+    let m;
+    if ((m = line.match(/^#{1,4}\s+(.*)$/))) {
+      flushPara();
+      closeList();
+      html += `<p class="md-h">${inline(m[1])}</p>`;
+    } else if ((m = line.match(/^[-*•]\s+(.*)$/))) {
+      flushPara();
+      if (list !== "ul") {
+        closeList();
+        html += "<ul>";
+        list = "ul";
+      }
+      html += `<li>${inline(m[1])}</li>`;
+    } else if ((m = line.match(/^\d+[.)]\s+(.*)$/))) {
+      flushPara();
+      if (list !== "ol") {
+        closeList();
+        html += "<ol>";
+        list = "ol";
+      }
+      html += `<li>${inline(m[1])}</li>`;
+    } else {
+      closeList();
+      para.push(line);
+    }
+  }
+  flushPara();
+  closeList();
+  return html;
+}
+
+// Burbuja de texto del agente en curso: varios eventos {"text"} seguidos
+// del mismo turno se acumulan en la misma burbuja hasta que aparece una
+// pregunta, una tarjeta de reporte o termina el turno.
 let activeAgentDiv = null;
-let activeTurnStarted = false;
+
+function appendAgentText(text) {
+  if (!activeAgentDiv) {
+    activeAgentDiv = document.createElement("div");
+    activeAgentDiv.className = "msg agent md";
+    activeAgentDiv.dataset.raw = "";
+    appendToChat(activeAgentDiv);
+  }
+  const prev = activeAgentDiv.dataset.raw;
+  activeAgentDiv.dataset.raw = prev ? `${prev}\n\n${text}` : text;
+  activeAgentDiv.innerHTML = renderMarkdown(activeAgentDiv.dataset.raw);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function showAgentError(message) {
+  activeAgentDiv = null;
+  const div = document.createElement("div");
+  div.className = "msg agent error";
+  div.textContent = message;
+  appendToChat(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+// Tarjeta con el reporte/menú completo (herramienta mostrar_reporte).
+function showReportCard(report) {
+  activeAgentDiv = null;
+  const div = document.createElement("div");
+  div.className = "msg agent md report-card";
+  div.innerHTML = `
+    <p class="report-title">${escapeHtml(report.titulo || "Reporte")}</p>
+    ${renderMarkdown(report.contenido || "")}
+  `;
+  appendToChat(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
 
 // True desde que se manda el primer mensaje de la conversación actual
 // hasta que se cierra (automático vía el aviso de cierre, o manual con
@@ -157,14 +286,6 @@ let activeTurnStarted = false;
 // cambiarlo a mitad de la conversación solo generaría confusión sobre a
 // qué mitad de los mensajes aplica.
 let conversationStarted = false;
-
-function ensureAgentBubble() {
-  if (!activeAgentDiv) {
-    activeAgentDiv = showThinking();
-    activeTurnStarted = false;
-  }
-  return activeAgentDiv;
-}
 
 // Cierra la conversación actual del lado del backend (descarta el
 // ClaudeSDKClient con todo su historial acumulado — ver POST /chat/close)
@@ -186,10 +307,10 @@ async function closeConversation() {
   }
 
   chatInnerEl.innerHTML = "";
+  clearBusy();
   tokensCounterEl.textContent = "— tokens";
   costCounterEl.textContent = "costo aprox. propuesta: —";
   activeAgentDiv = null;
-  activeTurnStarted = false;
   conversationStarted = false;
   if (testModeToggleEl) {
     testModeToggleEl.disabled = false;
@@ -226,14 +347,8 @@ async function consumeStream(resp) {
   // conexión original de /chat seguía viva y le tocaba a ELLA seguir
   // escuchando la continuación (ver _drain_events/listener_active en
   // agent_service.py) — en ese caso esta llamada no tuvo ningún rol real
-  // en la conversación y NO debe tocar el estado compartido de la burbuja
-  // activa (activeAgentDiv/activeTurnStarted). Antes se reseteaba ese
-  // estado sin condición al final de cada llamada, así que la llamada
-  // "vacía" (o la anticipada por ensureAgentBubble() en el click de
-  // Responder) pisaba la referencia de la burbuja que SÍ estaba usando la
-  // conexión real, provocando que esta última creara una burbuja nueva —
-  // dejando huérfana, y para siempre en "pensando", la burbuja que sí se
-  // había alcanzado a crear pero nunca recibió contenido.
+  // en la conversación y NO debe tocar el estado compartido (burbuja
+  // activa e indicador de estado) que sí está usando la conexión real.
   let sawRealEvent = false;
 
   while (true) {
@@ -246,15 +361,9 @@ async function consumeStream(resp) {
     buffer = parts.pop(); // lo incompleto se queda para el siguiente chunk
 
     for (const part of parts) {
-      // El marcador de cierre del stream ("event: done\ndata: {}") no es
-      // contenido real — antes esto se colaba como si fuera un payload
-      // vacío, y como no calzaba con ninguna rama (ni pregunta, ni texto,
-      // ni error) igual disparaba ensureAgentBubble(), creando una
-      // burbuja de "pensando" que ya no tenía nada que la resolviera
-      // nunca. Pasaba sobre todo con las respuestas "vacías" de
-      // /chat/answer (cuando la conexión original seguía viva y le tocó
-      // a ella seguir escuchando, ver backend) — el ícono se quedaba
-      // ahí para siempre.
+      // El marcador de cierre del stream (evento "done" con data vacío) no es
+      // contenido real: se ignora para que no cuente como evento ni
+      // dispare nada en pantalla.
       const eventLine = part.split("\n").find((l) => l.startsWith("event: "));
       if (eventLine && eventLine.slice(7).trim() === "done") continue;
 
@@ -271,41 +380,37 @@ async function consumeStream(resp) {
 
       sawRealEvent = true;
 
-      if (payload.question) {
-        // Si había una burbuja "pensando" activa que nunca llegó a mostrar
-        // texto real (por ejemplo, la que se crea al hacer click en
-        // Responder, anticipando la continuación) y lo que sigue es
-        // directamente otra pregunta, sin narración de por medio, esa
-        // burbuja ya no tiene nada que la vaya a resolver — la quitamos en
-        // vez de dejarla congelada en "pensando" para siempre.
-        if (activeAgentDiv && !activeTurnStarted) {
-          activeAgentDiv.remove();
-        }
-        activeAgentDiv = null;
-        activeTurnStarted = false;
+      if (payload.status) {
+        // Solo mientras el agente tiene la palabra: un estado tardío no
+        // debe reaparecer cuando ya se le está pidiendo algo al usuario.
+        if (busy) setBusy(payload.status);
+        continue;
+      }
 
-        // Cada pregunta es su propia burbuja independiente — el modelo
-        // puede disparar más de una AskUserQuestion en el mismo turno
-        // (ej. más de 4 preguntas en total, límite duro de la
-        // herramienta). Si compartieran la burbuja activa, la segunda
-        // pisaría el DOM de la primera y esa pregunta quedaría huérfana.
+      if (payload.question) {
+        // El agente le devuelve la palabra al usuario: ya no está
+        // "trabajando". Cada pregunta es su propia burbuja independiente.
+        clearBusy();
+        activeAgentDiv = null;
+
         const questionDiv = document.createElement("div");
         questionDiv.className = "msg agent";
-        chatInnerEl.appendChild(questionDiv);
+        appendToChat(questionDiv);
         chatEl.scrollTop = chatEl.scrollHeight;
         renderQuestionCard(questionDiv, payload.question, payload.question_id);
         continue;
       }
 
+      if (payload.report) {
+        showReportCard(payload.report);
+        continue;
+      }
+
       if (payload.close_prompt) {
         // El propio agente señaló (mcp__conversation__cerrar_conversacion)
-        // que esta propuesta ya terminó — misma limpieza de burbuja
-        // "pensando" huérfana que en payload.question, por la misma razón.
-        if (activeAgentDiv && !activeTurnStarted) {
-          activeAgentDiv.remove();
-        }
+        // que esta propuesta ya terminó.
+        clearBusy();
         activeAgentDiv = null;
-        activeTurnStarted = false;
 
         const closeDiv = document.createElement("div");
         closeDiv.className = "msg agent close-prompt";
@@ -319,7 +424,7 @@ async function consumeStream(resp) {
           ${motivo ? `<p class="close-prompt-motivo">${escapeHtml(motivo)}</p>` : ""}
           <button type="button" class="close-prompt-btn">Cerrar conversación</button>
         `;
-        chatInnerEl.appendChild(closeDiv);
+        appendToChat(closeDiv);
         chatEl.scrollTop = chatEl.scrollHeight;
         closeDiv.querySelector(".close-prompt-btn").addEventListener("click", async () => {
           const btn = closeDiv.querySelector(".close-prompt-btn");
@@ -330,20 +435,11 @@ async function consumeStream(resp) {
         continue;
       }
 
-      const agentDiv = ensureAgentBubble();
-      if (!activeTurnStarted && (payload.text || payload.error)) {
-        // Primer contenido real: quitamos el indicador de "pensando"
-        agentDiv.classList.remove("thinking");
-        agentDiv.innerHTML = "";
-        activeTurnStarted = true;
-      }
-
       if (payload.error) {
-        agentDiv.classList.add("error");
-        agentDiv.textContent += `Error: ${payload.error}`;
+        clearBusy();
+        showAgentError(`Error: ${payload.error}`);
       } else if (payload.text) {
-        agentDiv.textContent += payload.text;
-        chatEl.scrollTop = chatEl.scrollHeight;
+        appendAgentText(payload.text);
       }
     }
   }
@@ -354,15 +450,10 @@ async function consumeStream(resp) {
   if (!sawRealEvent) return;
 
   // El stream terminó de verdad (el turno llegó a _TURN_DONE del lado del
-  // backend) — la próxima burbuja de "pensando" debe ser una nueva, no
-  // esta reciclada. Si quedó una burbuja "pensando" sin resolver (el turno
-  // terminó sin que llegara más texto después de la última pregunta, por
-  // ejemplo), la quitamos en vez de dejarla congelada.
-  if (activeAgentDiv && !activeTurnStarted) {
-    activeAgentDiv.remove();
-  }
+  // backend): la próxima burbuja de texto debe ser una nueva y ya no hay
+  // nada "trabajando".
   activeAgentDiv = null;
-  activeTurnStarted = false;
+  clearBusy();
 }
 
 async function sendMessage(message) {
@@ -374,7 +465,8 @@ async function sendMessage(message) {
   moveInputToFooter();
 
   addMessage(message, "user");
-  ensureAgentBubble();
+  activeAgentDiv = null;
+  setBusy("Pensando…");
 
   // El modo prueba se fija con el PRIMER mensaje de la conversación (ver
   // ConversationSession.test_mode en el backend) — a partir de acá el
@@ -398,14 +490,10 @@ async function sendMessage(message) {
     });
     await consumeStream(resp);
   } catch (err) {
-    const agentDiv = ensureAgentBubble();
-    agentDiv.classList.remove("thinking");
-    agentDiv.classList.add("error");
-    agentDiv.innerHTML = "";
-    agentDiv.textContent = `No se pudo conectar: ${err.message}`;
-    activeAgentDiv = null;
-    activeTurnStarted = false;
+    clearBusy();
+    showAgentError(`No se pudo conectar: ${err.message}`);
   } finally {
+    clearBusy();
     submitBtn.disabled = false;
   }
 }
@@ -526,12 +614,9 @@ function renderQuestionCard(container, questionPayload, questionId) {
       submitEl.disabled = true;
       submitEl.textContent = "Enviando…";
 
-      // Igual que sendMessage(): mostramos "pensando" de una vez, al
-      // responder, en vez de esperar a que llegue el primer texto/pregunta
-      // de la continuación. Antes, entre responder una pregunta y que
-      // apareciera la siguiente (o más texto), no había ningún indicador
-      // en pantalla — daba la impresión de que el hilo se cortaba.
-      ensureAgentBubble();
+      // Igual que sendMessage(): mostramos el estado de una vez, al
+      // responder, en vez de esperar al primer evento de la continuación.
+      setBusy("Pensando…");
 
       try {
         const resp = await fetch("/chat/answer", {
@@ -577,15 +662,9 @@ function renderQuestionCard(container, questionPayload, questionId) {
         errorEl.className = "question-error";
         errorEl.textContent = `No se pudo enviar: ${err.message}. Intenta de nuevo.`;
         container.appendChild(errorEl);
-        // La burbuja "pensando" que se creó arriba (ensureAgentBubble())
-        // quedaría huérfana para siempre si no la resolvemos acá — nada
-        // más la va a limpiar porque consumeStream() nunca llegó a correr
-        // (mismo patrón que el catch de sendMessage()).
-        if (activeAgentDiv) {
-          activeAgentDiv.remove();
-          activeAgentDiv = null;
-          activeTurnStarted = false;
-        }
+        // El estado que se mostró arriba quedaría pegado para siempre si
+        // no lo quitamos acá: consumeStream() nunca llegó a correr.
+        clearBusy();
       }
     });
   }

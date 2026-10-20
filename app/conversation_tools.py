@@ -1,5 +1,5 @@
 """
-Dos herramientas de sesión — a diferencia de web_context_tools.py y
+Tres herramientas de sesión — a diferencia de web_context_tools.py y
 menu_cache/sdk_tools.py (servidores construidos UNA sola vez a nivel de
 módulo, sin estado propio de sesión), estas necesitan una
 ConversationSession puntual — por eso build_conversation_tools_server(session)
@@ -18,6 +18,11 @@ por ConversationSession nueva):
   (agent_service.py) le manda al navegador el aviso de cierre, y solo
   cuando el usuario lo confirma (o usa "Nueva conversación" en cualquier
   momento) se cierra de verdad la sesión — ver POST /chat/close en main.py.
+
+- mostrar_reporte: muestra al usuario una tarjeta con el menú/reporte
+  completo (el usuario no ve el razonamiento del agente ni los resultados
+  de sus herramientas). La tarjeta la emite agent_service.drain_messages
+  leyendo la llamada, no esta herramienta, para conservar el orden real.
 
 - guardar_notas_de_prueba: SOLO funciona si session.test_mode es True (lo
   verifica ella misma, no depende de que el agente respete la skill) —
@@ -137,8 +142,42 @@ def build_conversation_tools_server(session):
             ]
         }
 
+    @tool(
+        "mostrar_reporte",
+        (
+            "Muestra al usuario, en pantalla, una tarjeta con el menú, la "
+            "lista de compras o el reporte final COMPLETO y actualizado. "
+            "El usuario NO ve tu razonamiento ni los resultados de tus "
+            "herramientas, solo tus mensajes de texto, esta tarjeta y tus "
+            "preguntas: úsala siempre ANTES de una AskUserQuestion que le "
+            "pida revisar o confirmar algo (la primera propuesta detallada, "
+            "cada versión ajustada tras un cambio suyo, y el reporte final "
+            "previo a guardar). Nunca digas 'te lo reenvío' o 'te lo "
+            "muestro' sin llamar a esta herramienta o escribir el "
+            "contenido en tu mensaje. `titulo` es corto (ej. 'Propuesta "
+            "ajustada'); `contenido` va en markdown simple (títulos con "
+            "**negrita**, listas con '- ')."
+        ),
+        {"titulo": str, "contenido": str},
+    )
+    async def mostrar_reporte(args: dict) -> dict:
+        # La tarjeta la manda al navegador drain_messages (agent_service.py)
+        # leyendo esta misma llamada, para respetar el orden real de los
+        # bloques; acá solo confirmamos.
+        return {
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "Listo, el reporte ya se muestra en la pantalla del "
+                        "usuario. Ahora sí puedes hacerle tu pregunta."
+                    ),
+                }
+            ]
+        }
+
     return create_sdk_mcp_server(
         name="conversation",
         version="0.1.0",
-        tools=[cerrar_conversacion, guardar_notas_de_prueba],
+        tools=[cerrar_conversacion, guardar_notas_de_prueba, mostrar_reporte],
     )

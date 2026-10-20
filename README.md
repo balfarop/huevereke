@@ -10,10 +10,10 @@
 > las suma al Agent SDK — la skill `propuesta-menu-semanal` decide cuándo
 > usarlas en vez de consultar Notion en vivo (ver sus pasos 3b/4b/5).
 >
-> **Cómo actualizar el caché** (por ejemplo, después de que
-> `analisis-plato-insumo`, `curar-combos-plato`, o cualquier edición manual
-> cambien Platos/Insumos/Receta_Insumo/Semanas en Notion — el caché NO se
-> refresca solo):
+> **Actualización del caché:** es automática. La app lo sincroniza al
+> arrancar, al empezar una conversación y al guardar una Semana, si tiene
+> más de `MENU_CACHE_MAX_AGE_MINUTES` (30 por defecto). Si editas Notion a
+> mano y quieres verlo ya en el agente, puedes forzarlo:
 >
 > ```bash
 > python build_cache.py            # sincroniza y muestra conteos

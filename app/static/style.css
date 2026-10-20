@@ -652,20 +652,16 @@ header {
   cursor: default;
 }
 
-.msg.thinking {
+/* Línea de estado fija al pie del chat mientras el agente trabaja:
+   tres puntos animados + un texto corto de lo que está haciendo. */
+.msg-status {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  align-self: flex-start;
+  padding: 4px 6px;
   color: var(--muted);
-  font-style: italic;
-}
-
-.thinking-avatar {
-  width: 64px;
-  height: 64px;
-  object-fit: contain;
-  font-style: normal;
-  animation: thinking-pulse 1.8s infinite ease-in-out;
+  font-size: 0.95rem;
 }
 
 .thinking-dots {
@@ -700,13 +696,44 @@ header {
   }
 }
 
-@keyframes thinking-pulse {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.06);
-  }
+/* ---------- Mensajes del agente con markdown y tarjeta de reporte ---------- */
+
+.msg.md {
+  white-space: normal;
+}
+
+.msg.md p {
+  margin: 0 0 0.6em;
+}
+
+.msg.md p.md-h {
+  font-weight: 700;
+  margin-top: 0.4em;
+}
+
+.msg.md ul,
+.msg.md ol {
+  margin: 0 0 0.6em;
+  padding-left: 1.3em;
+}
+
+.msg.md li {
+  margin-bottom: 0.15em;
+}
+
+.msg.md > :last-child {
+  margin-bottom: 0;
+}
+
+.msg.report-card {
+  border-left: 4px solid var(--accent);
+  max-width: 100%;
+}
+
+.msg.report-card p.report-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 0.5em;
 }
 
 /* ---------- Tarjeta de pregunta interactiva (AskUserQuestion) ---------- */

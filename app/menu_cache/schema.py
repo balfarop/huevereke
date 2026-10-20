@@ -121,7 +121,9 @@ CREATE TABLE IF NOT EXISTS _sync_meta (
 
 
 def get_connection(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    # timeout alto: un refresco en curso puede tener la base ocupada unos
+    # segundos justo cuando el agente consulta.
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

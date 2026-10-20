@@ -11,7 +11,22 @@ conectarlo, los adaptadores (Agent SDK para la web, MCP stdio para
 Claude Desktop) deben ser envoltorios delgados sobre estas funciones,
 no reimplementar la lógica.
 """
+import re
 import sqlite3
+
+_HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+def _canon_id(raw: str) -> str:
+    """Devuelve el id de Notion en el formato con guiones (8-4-4-4-12), que
+    es como se guarda en el caché. El agente a veces lo manda sin guiones
+    (ej. al copiarlo de una URL de Notion) y antes eso daba [] en silencio.
+    Si no parece un id de 32 hex, se deja tal cual."""
+    limpio = str(raw).strip().replace("-", "")
+    if not _HEX32.match(limpio):
+        return str(raw).strip()
+    limpio = limpio.lower()
+    return f"{limpio[:8]}-{limpio[8:12]}-{limpio[12:16]}-{limpio[16:20]}-{limpio[20:]}"
 
 
 def _rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict]:
@@ -108,6 +123,7 @@ def semanas_recientes(conn: sqlite3.Connection, limit: int = 8) -> list[dict]:
 def receta_insumo_por_platos(conn: sqlite3.Connection, plato_ids: list[str]) -> list[dict]:
     if not plato_ids:
         return []
+    plato_ids = [_canon_id(pid) for pid in plato_ids]
     placeholders = ",".join("?" for _ in plato_ids)
     rows = conn.execute(
         f"""
