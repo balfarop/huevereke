@@ -23,7 +23,7 @@ No hay tests automatizados. Para verificar cambios: usar el toggle "Modo prueba"
 - `app/notion_direct.py`: llamadas directas a la API REST de Notion (sidebar de semanas y precargado de contexto), con `NOTION_TOKEN` (integración interna). No pasa por el agente ni gasta cuota de suscripción.
 - `app/web_context_tools.py`, `app/conversation_tools.py`: herramientas MCP en proceso (precargado de contexto, notas de conversación).
 - `app/menu_cache/`: caché SQLite (`schema.py`, `sync.py`, `queries.py`) y sus herramientas para el agente (`sdk_tools.py`, expuestas como `mcp__menu_cache__*`). Cada llamada abre su propia conexión, así que no hace falta reiniciar tras `build_cache.py`.
-- `.claude/skills/`: `propuesta-menu-semanal` y `notion-interaccion` (esquema de las 5 bases de Notion). El agente decide en ellas cuándo usar el caché o Notion en vivo. `analisis-plato-insumo` está referida en el README pero no está copiada aquí.
+- `.claude/skills/`: `propuesta-menu-semanal`, `notion-interaccion` (esquema de las 5 bases de Notion) y `analisis-plato-insumo`. El agente decide en `propuesta-menu-semanal` cuándo usar el caché o Notion en vivo. `analisis-plato-insumo` se usaba en Claude Desktop para cargar el historial de platos; ya no se usa, pero se conserva como respaldo.
 - `app/static/`: frontend de una sola página (`index.html`, `app.js`, `style.css`). El `index.html` de la raíz es una página de presentación aparte, heredada del repo remoto.
 
 ## Cosas a tener en cuenta
