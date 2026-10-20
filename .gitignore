@@ -1,0 +1,11 @@
+# Secretos y entorno
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Caché local generado por build_cache.py (datos personales de menú)
+menu_cache.sqlite3
+
+# Configuración local de Claude Code
+.claude/settings.local.json

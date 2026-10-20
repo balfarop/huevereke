@@ -1,0 +1,19 @@
+# Config de ejemplo para Fly.io.
+# Ajusta "app" al nombre que elijas al correr `fly launch`.
+app = "menu-semanal-web"
+primary_region = "gru"  # São Paulo — la región más cercana a Perú en Fly.io
+
+[build]
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0   # clave: no paga nada mientras nadie lo usa
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

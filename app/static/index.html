@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Huevereke</title>
+  <link rel="icon" type="image/png" href="/static/img/huevereke.png" />
+  <link rel="stylesheet" href="/static/style.css?v=14" />
+  <script>
+    // Aplica el tema guardado ANTES de pintar la página, para que no
+    // haya un parpadeo de claro -> oscuro al cargar.
+    (function () {
+      var saved = localStorage.getItem("huevereke-theme");
+      if (saved) document.documentElement.setAttribute("data-theme", saved);
+    })();
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="/static/img/huevereke.png" alt="Huevereke" />
+      <h1>Huevereke</h1>
+    </div>
+    <div class="header-right">
+      <div class="usage-info" id="usage-info" tabindex="0">
+        <span id="tokens-counter" class="usage-counter">— tokens</span>
+        <span id="cost-counter" class="usage-counter">costo aprox. propuesta: —</span>
+        <div class="usage-tooltip" role="tooltip">
+          Los <strong>tokens</strong> se actualizan en vivo con cada
+          pregunta/respuesta de esta conversación. El <strong>costo
+          aproximado</strong> (según la tabla de precios de lista del SDK —
+          no el dato oficial de facturación de Anthropic) recién se calcula
+          al terminar cada turno completo, por ejemplo al terminar de armar
+          toda la propuesta. Este consumo sale de la misma ventana de 5
+          horas / límite semanal que el uso interactivo de Claude Code —
+          revisa Configuración → Uso en Claude Desktop para el % real de tu
+          cuenta.
+        </div>
+      </div>
+      <button
+        id="new-conversation-btn"
+        class="new-conversation-btn"
+        type="button"
+        title="Cierra esta conversación y empieza una nueva, sin arrastrar su historial (así no sube el consumo de tokens de la próxima propuesta)."
+      >Nueva conversación</button>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Cambiar tema" title="Cambiar tema">🌙</button>
+      <span class="user-email">{{USER_EMAIL}}</span>
+      <a href="/logout" class="logout">Salir</a>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <aside class="sidebar" id="sidebar">
+      <h2>Últimas semanas</h2>
+      <button class="sidebar-refresh" id="sidebar-refresh" type="button">Actualizar</button>
+      <div id="sidebar-content">
+        <p class="sidebar-status">Cargando…</p>
+      </div>
+    </aside>
+
+    <div class="chat-area">
+      <main id="chat" class="chat">
+        <div id="welcome-screen" class="welcome-screen">
+          <div class="welcome-hero">
+            <img
+              src="/static/img/huevereke_pensando.png"
+              alt="Huevereke"
+              class="welcome-hero-image"
+            />
+            <h2>¡Hola! Soy Huevereke 🍳</h2>
+            <p>
+              Voy a preparar tu propuesta de menú semanal y la lista de
+              insumos a partir de tus datos y semanas anteriores.
+            </p>
+          </div>
+
+          <div class="welcome-steps">
+            <div class="welcome-step">
+              <span class="welcome-step-number">1</span>
+              <div>
+                <p class="welcome-step-title">Revisa tus semanas</p>
+                <p class="welcome-step-desc">
+                  <span class="welcome-step-desc-wide">Consulta platos anteriores desde la barra izquierda.</span>
+                  <span class="welcome-step-desc-narrow">Consulta tus platos anteriores en "Últimas semanas".</span>
+                </p>
+              </div>
+            </div>
+            <div class="welcome-step">
+              <span class="welcome-step-number">2</span>
+              <div>
+                <p class="welcome-step-title">Activa Modo prueba</p>
+                <p class="welcome-step-desc">Úsalo si quieres practicar sin guardar cambios.</p>
+              </div>
+            </div>
+            <div class="welcome-step">
+              <span class="welcome-step-number">3</span>
+              <div>
+                <p class="welcome-step-title">Escribe tu pedido</p>
+                <p class="welcome-step-desc">Dime qué necesitas y Huevereke arma la propuesta.</p>
+              </div>
+            </div>
+          </div>
+
+          <p class="welcome-cta-label">Cuando estés listo, escribe:</p>
+
+          <!-- El test-mode-row real y el chat-form real (ver abajo) se
+               mueven ACÁ con JS mientras no haya empezado la conversación
+               (ver app.js) — en vez de duplicar el input, movemos el mismo
+               elemento, así no hay dos formularios ni dos listeners. Cuando
+               el usuario manda el primer mensaje, ambos vuelven a su lugar
+               fijo al fondo de la pantalla, para el layout normal de chat. -->
+          <div id="welcome-input-slot" class="welcome-input-slot"></div>
+
+          <p class="welcome-tip">Tip: puedes mencionar preferencias, número de personas o ingredientes que ya tienes.</p>
+        </div>
+        <div id="chat-inner" class="chat-inner"></div>
+      </main>
+
+      <div class="test-mode-row">
+        <label
+          class="test-mode-toggle"
+          title="Mientras esté activo, ninguna escritura a Notion se guarda en esta conversación (ni la Semana ni la sub-página de notas) — la app lo bloquea, no depende de pedírselo al agente. Se fija al mandar el primer mensaje y no se puede cambiar a mitad de la conversación."
+        >
+          <input type="checkbox" id="test-mode-toggle" />
+          Modo prueba (no guarda nada en Notion)
+        </label>
+      </div>
+
+      <form id="chat-form" class="chat-form">
+        <textarea
+          id="chat-input"
+          rows="1"
+          placeholder="Ej: arma la propuesta de menú de esta semana (Shift+Enter para salto de línea)"
+        ></textarea>
+        <button type="submit">Enviar</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=19"></script>
+</body>
+</html>
