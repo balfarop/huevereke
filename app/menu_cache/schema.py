@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS insumos (
     unidad_estandar TEXT,
     uso TEXT,
     origen_compra TEXT,
-    notas TEXT
+    notas TEXT,
+    cantidad_pedido_habitual TEXT
 );
 
 CREATE TABLE IF NOT EXISTS receta_insumo (
@@ -134,6 +135,12 @@ def init_db(db_path: str) -> None:
     conn = get_connection(db_path)
     try:
         conn.executescript(SCHEMA)
+        # CREATE TABLE IF NOT EXISTS no agrega columnas nuevas a una tabla que
+        # ya existe: este caché local es previo a "Cantidad de pedido
+        # habitual", así que se agrega a mano si falta.
+        columnas = {r["name"] for r in conn.execute("PRAGMA table_info(insumos)")}
+        if "cantidad_pedido_habitual" not in columnas:
+            conn.execute("ALTER TABLE insumos ADD COLUMN cantidad_pedido_habitual TEXT")
         conn.commit()
     finally:
         conn.close()

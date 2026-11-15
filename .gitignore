@@ -9,3 +9,6 @@ menu_cache.sqlite3
 
 # Configuración local de Claude Code
 .claude/settings.local.json
+
+# Listados de trabajo generados a partir del caché (datos personales)
+datos_locales/

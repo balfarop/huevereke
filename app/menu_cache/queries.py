@@ -134,6 +134,7 @@ def receta_insumo_por_platos(conn: sqlite3.Connection, plato_ids: list[str]) -> 
             i.nombre AS insumo_nombre,
             i.unidad_estandar,
             i.origen_compra,
+            i.cantidad_pedido_habitual,
             ri.tipo,
             ri.confianza,
             ri.cantidad_referencia,

@@ -213,8 +213,9 @@ async def refresh_cache(db_path: str | None = None) -> dict[str, int]:
                 props = row["properties"]
                 conn.execute(
                     """INSERT INTO insumos
-                       (id, nombre, alias, unidad_estandar, uso, origen_compra, notas)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (id, nombre, alias, unidad_estandar, uso, origen_compra, notas,
+                        cantidad_pedido_habitual)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         row["id"],
                         _title_text(props.get("Nombre")),
@@ -223,6 +224,7 @@ async def refresh_cache(db_path: str | None = None) -> dict[str, int]:
                         _select_text(props.get("Uso")),
                         _select_text(props.get("Origen de compra")),
                         _rich_text(props.get("Notas")),
+                        _rich_text(props.get("Cantidad de pedido habitual")),
                     ),
                 )
             counts["insumos"] = len(rows)
