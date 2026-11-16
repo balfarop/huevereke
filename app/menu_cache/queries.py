@@ -234,3 +234,34 @@ def buscar_platos(conn: sqlite3.Connection, texto: str) -> list[dict]:
         (like, like),
     ).fetchall()
     return _rows_to_dicts(rows)
+
+
+def _sin_acentos(texto: str) -> str:
+    import unicodedata
+
+    normal = unicodedata.normalize("NFD", str(texto))
+    return "".join(c for c in normal if unicodedata.category(c) != "Mn").lower().strip()
+
+
+def resolver_insumos(conn: sqlite3.Connection, nombres: list[str]) -> tuple[dict[str, dict], list[str]]:
+    """Busca cada nombre en Insumos.Nombre (o en Insumos.Alias), ignorando
+    mayúsculas y acentos. Devuelve ({nombre_pedido: {"id", "nombre"}},
+    [nombres_sin_resolver])."""
+    por_nombre: dict[str, dict] = {}
+    por_alias: dict[str, dict] = {}
+    for row in conn.execute("SELECT id, nombre, alias FROM insumos"):
+        info = {"id": row["id"], "nombre": row["nombre"]}
+        por_nombre[_sin_acentos(row["nombre"])] = info
+        for alias in re.split(r"[,;/]", row["alias"] or ""):
+            if alias.strip():
+                por_alias.setdefault(_sin_acentos(alias), info)
+    encontrados: dict[str, dict] = {}
+    faltantes: list[str] = []
+    for nombre in nombres:
+        clave = _sin_acentos(nombre)
+        info = por_nombre.get(clave) or por_alias.get(clave)
+        if info:
+            encontrados[nombre] = info
+        else:
+            faltantes.append(nombre)
+    return encontrados, faltantes

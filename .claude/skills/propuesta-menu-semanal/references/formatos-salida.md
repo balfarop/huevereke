@@ -20,7 +20,7 @@ Además, este modo comparte con Telegram las reglas de "no redundancia de prote�
 
 Mismo espíritu que el modo WhatsApp — texto plano para un canal sin tablas — pero deliberadamente más comprimido, porque en una arquitectura de agente vía API (Cloudflare + Notion MCP, por ejemplo) el texto de cada mensaje generado tiene un costo real de tokens en el pipeline, no solo ocupa espacio en pantalla. Reglas adicionales sobre el modo WhatsApp:
 
-- Etiquetas de sección abreviadas en vez de frases completas: `D1:`…`D5:` en vez de "Día 1:", `Bebida:` y `Desayuno:` sin el título general, `Compra:` y `Familiar:` en vez de "Lista de compras — proveedor" y "Consumo familiar".
+- Etiquetas de sección abreviadas en vez de frases completas: `D1:`…`D5:` en vez de "Día 1:", `Bebida:` y `Desayuno:` sin el título general, `Compra:` en vez de "Lista de compras — proveedor" (las frutas de consumo familiar van dentro de esa misma lista).
 - Sin línea de título ("Propuesta de menú — semana del...") salvo que el usuario la pida — el propio chat de Telegram ya da contexto de que es la propuesta de esa semana.
 - Acompañamiento del día va en la misma línea que el plato, unido con `+`, sin frase adicional explicando de dónde sale.
 - **Nunca repitas la proteína aparte del nombre del plato si el nombre ya la deja clara** ("Lentejas con pescado", "Trigo con pollo a la olla", "Locro de zapallo con carne" — los tres ya dicen la proteína, no agregues "(pescado)", "(pollo)", "(carne de res)" detrás). Es redundante y en este modo cada palabra de más cuesta tokens. Solo agrégala, sin paréntesis, si el nombre del plato genuinamente no da ninguna pista (ej. "Ensalada", un nombre propio sin ingrediente reconocible) — y en ese caso intégrala a la frase en vez de ponerla entre paréntesis.
@@ -72,11 +72,7 @@ Plantilla de referencia para el modo WhatsApp (ver paso 6 de `SKILL.md` para el 
 
 *Lista de compras — proveedor*
 - Insumo (cantidad simple si hay una clara; si es compartida entre varios platos sin un número único, escribe "cantidad habitual" en vez de listar cada nota)
-- ...
-
-*Consumo familiar*
-- Insumo — cantidad
-- ...
+- ... (las frutas de consumo familiar van aquí mismo, mezcladas con el resto: se piden al mismo proveedor)
 ```
 
 Plantilla de referencia para el modo Telegram (texto plano; agrega `*` alrededor de las etiquetas solo si el usuario confirmó `parse_mode=Markdown` legacy u HTML):
@@ -91,11 +87,7 @@ Desayuno: [respuesta 4c, o "nada especial esta semana"]
 
 Compra:
 - Insumo: cantidad
-- ...
-
-Familiar:
-- Insumo: cantidad
-- ...
+- ... (las frutas de consumo familiar van aquí mismo, mezcladas con el resto)
 ```
 
 La sección "Compra directa (carnicería/súper)" se omite por defecto en los modos WhatsApp y Telegram salvo que el usuario la pida explícitamente — es información más útil para revisar en el catálogo que para una lista de compras rápida. Si el usuario la pide, agrégala con el mismo estilo de guiones simples, sin tabla (y en modo Telegram, con la misma etiqueta abreviada: `Directa:`).

@@ -198,15 +198,9 @@ Modo Detallado (ver "Formato de salida") — tablas markdown completas, con toda
 | Insumo | Cantidad | Confianza | Se usa en |
 |---|---|---|---|
 | ... | ... | ... | ... |
-
-## Consumo familiar
-
-| Insumo | Cantidad |
-|---|---|
-| ... | ... |
 ```
 
-**Las dos listas de compras (proveedor / directa) nunca van combinadas en una sola tabla, ni siquiera para "simplificar" la vista.** Sepáralas exclusivamente por `Insumos.Origen de compra` (`Proveedor frutas-verduras` vs. `Carnicería-supermercado`) — nunca por intuición de qué "parece" carne o verdura, porque el catálogo puede tener excepciones. Un insumo puede aparecer en como mucho una de las dos, nunca en ambas. La sección "Consumo familiar" es una tercera lista aparte, ni proveedor ni directa (ver paso 4d) — no la mezcles con ninguna de las dos aunque a veces se pida al mismo proveedor de frutas-verduras.
+**Las dos listas de compras (proveedor / directa) nunca van combinadas en una sola tabla, ni siquiera para "simplificar" la vista.** Sepáralas exclusivamente por `Insumos.Origen de compra` (`Proveedor frutas-verduras` vs. `Carnicería-supermercado`) — nunca por intuición de qué "parece" carne o verdura, porque el catálogo puede tener excepciones. Un insumo puede aparecer en como mucho una de las dos, nunca en ambas. **Los insumos de consumo familiar (frutas) NO van en una lista aparte:** se piden al mismo proveedor de frutas y verduras, así que van dentro de "Lista de compras — proveedor", junto a todo lo demás, con "Consumo familiar" en la columna "Se usa en". Sigue valiendo "un insumo, una sola línea" (paso 5b): si una fruta ya está en la lista por otro uso (ej. naranja para el jugo), súmala en una sola línea con el total y menciona ambos usos. Si algún insumo de consumo familiar tuviera `Origen de compra = Carnicería-supermercado`, va en "Compra directa" como cualquier otro (la regla es siempre `Insumos.Origen de compra`). Aparte de esto, guarda internamente cuánto de cada fruta es de consumo familiar: lo necesitas para el paso 7 (`registrar_consumo_familiar`).
 
 **Para pedir el visto bueno de este gate, usa `AskUserQuestion`** (ej. "¿Todo bien así?" con opciones "Sí, pasa al reporte final" / "Quiero cambiar algo") — nunca lo preguntes como texto plano al final del mensaje, aunque sea una decisión simple. El campo de texto libre de la tarjeta ya cubre cualquier ajuste puntual que quieran pedir.
 
@@ -227,18 +221,14 @@ Frutas de consumo familiar: ...
 
 Lista de compras — proveedor:
 - Insumo (cantidad)
-- ...
+- ... (aquí van también las frutas de consumo familiar, con su cantidad, mezcladas con el resto — NO en una sección aparte)
 
 Compra directa (carnicería/súper):
 - Insumo (cantidad)
 - ...
-
-Consumo familiar:
-- Insumo — cantidad
-- ...
 ```
 
-**Mantén las tres secciones de compra separadas aquí también, sin excepción** — a diferencia de los modos WhatsApp/Telegram (donde "Compra directa" se omite por defecto salvo pedido explícito, ver `formatos-salida.md`), este reporte es el que la familia usa para pedir y comprar de verdad, así que **"Compra directa (carnicería/súper)" siempre va incluida aquí**, nunca se omite por brevedad.
+**Mantén las dos listas de compra separadas aquí también, sin excepción** — a diferencia de los modos WhatsApp/Telegram (donde "Compra directa" se omite por defecto salvo pedido explícito, ver `formatos-salida.md`), este reporte es el que la familia usa para pedir y comprar de verdad, así que **"Compra directa (carnicería/súper)" siempre va incluida aquí**, nunca se omite por brevedad.
 
 **La confirmación final (la que dispara la escritura en Notion, paso 7) también va con `AskUserQuestion`** — ej. "¿Confirmas este reporte final?" con opciones "Sí, guarda en Notion" / "Todavía quiero ajustar algo". Igual que en el gate anterior: nunca la pidas como pregunta de texto plano, ni siquiera por ser la última del proceso — es la decisión más importante de toda la corrida (dispara escrituras reales), no la que menos merece una tarjeta clara.
 
@@ -259,7 +249,7 @@ Consumo familiar:
 - Por cada plato `Nuevo` o `En refinamiento` que el usuario confirmó tal cual (sin corregir sus insumos), suma +1 a `Veces validado` en `Platos` y +1 a `Veces confirmado` en las filas de `Receta_Insumo` correspondientes. Los platos ya `Cerrado` no se incrementan solo por haberse servido de nuevo.
 - Si el usuario confirmó una cantidad de proteína o de un insumo de desayuno que estaba pendiente, actualiza esa fila de `Receta_Insumo` a `Estado = Validado` con la cantidad indicada.
 - Si el usuario agregó un insumo de desayuno nuevo que no estaba en el catálogo, créalo en `Insumos` y vincúlalo al plato colector "Insumos para desayunos" en `Receta_Insumo` como `Transversal`, `Origen = Validación humana`.
-- Para los insumos de consumo familiar confirmados en el paso 4d, créalos TODOS en una sola llamada de creación de páginas en `Semana_Insumo_Familiar` — pero **solo los que efectivamente se van a pedir esta semana**. Si el usuario dice que ya tiene un insumo del patrón habitual en casa y no lo va a pedir (ej. "ya tenemos lúcuma y papaya"), no crees una fila para él — esta tabla registra lo que se pidió, no todo lo que se va a consumir.
+- **OBLIGATORIO — consumo familiar:** justo después de crear la entrada de `Semanas` (usa el id o la URL que devolvió `notion-create-pages`) y ANTES de `cerrar_conversacion`, llama a `mcp__conversation__registrar_consumo_familiar` con `semana_id` e `items` = las frutas/insumos de consumo familiar confirmados en el paso 4d, cada uno con `insumo` (nombre tal como está en `Insumos`), `cantidad` y `unidad` (kg / unidad / caja / cajita / gramos / mano). **Solo los que efectivamente se van a pedir esta semana**: si el usuario dice que ya tiene un insumo del patrón habitual en casa y no lo va a pedir (ej. "ya tenemos lúcuma y papaya"), no lo incluyas — esta tabla registra lo que se pidió, no todo lo que se va a consumir. **No uses `notion-create-pages` para esto:** la herramienta lo hace por código, no duplica filas y avisa si algún nombre no está en el catálogo (pregúntale al usuario cuál es). Esta escritura se omitió en corridas reales anteriores y eso deja a las próximas propuestas sin historial de frutas; no cierres la conversación sin haberla hecho (en MODO_PRUEBA la herramienta no escribe nada, igual llámala o salta este punto sin problema). Menciona en tu mensaje final que quedó registrada.
 - **MODO_PRUEBA (canal web de Huevereke, ver CHANNEL_CONTEXT del backend):** si el contexto de esta conversación viene marcado con MODO_PRUEBA, este paso 7 completo (Semana, sub-página de notas, y cualquier otra escritura a Notion) queda bloqueado a nivel técnico — no un pedido que dependa de que lo recuerdes. No lo intentes: arma la propuesta completa igual, pero al llegar a este punto dile al usuario en una frase que es una prueba y que no se guardó nada, sin sonar como un error. Justo ahí, preguntale con AskUserQuestion si de todas formas quiere que guardes un resumen de esta prueba en una página aparte de Notion (nunca colgando de una Semana real) para poder revisarlo — si acepta, llama a `mcp__conversation__guardar_notas_de_prueba` con ese resumen y pásale la URL que te devuelve tal cual, para que sepa dónde borrarla después.
 - **Al terminar de verdad esta conversación** — ya sea que este paso 7 se completó con éxito (Semana + sub-página de notas creadas), o que estás en MODO_PRUEBA y el usuario da por cerrada la corrida — llama una sola vez, como tu última acción, a `mcp__conversation__cerrar_conversacion` con `guardado=true` (solo si de verdad escribiste en Notion en esta corrida) o `guardado=false` (MODO_PRUEBA, o el usuario nunca llegó a confirmar el guardado), y un `motivo` de una frase corta. Esto le avisa al navegador que puede liberar el contexto de esta conversación — no lo llames a mitad de una propuesta todavía en curso.
 

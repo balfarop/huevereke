@@ -722,3 +722,97 @@ async def create_test_notes_page(resumen: str) -> str:
         if resp.status_code >= 400:
             raise RuntimeError(f"Notion respondió {resp.status_code}: {resp.text[:300]}")
         return resp.json().get("url") or ""
+
+
+# ---------------------------------------------------------------------------
+# Semana_Insumo_Familiar: registro de lo que se pidió de consumo familiar
+# ---------------------------------------------------------------------------
+
+# Opciones vigentes del Select "Unidad" de Semana_Insumo_Familiar. Cualquier
+# otra unidad (ej. "bandeja") no se envía como Select — la cantidad completa
+# queda igual en el campo de texto "Cantidad".
+_UNIDADES_FAMILIAR = {"kg", "unidad", "caja", "cajita", "gramos", "mano"}
+
+
+async def create_family_consumption_rows(semana_id: str, filas: list[dict]) -> dict:
+    """
+    Crea en Semana_Insumo_Familiar una fila por cada elemento de `filas`
+    ({"insumo_id", "insumo_nombre", "cantidad", "unidad"}) para la Semana
+    `semana_id` (id de la página recién guardada en Semanas).
+
+    Antes el agente tenía que hacer esto con una llamada larga a Notion al
+    final de una lista de pasos, y lo omitió varias semanas seguidas. Acá se
+    hace por código: es idempotente (no duplica una fila de un insumo que ya
+    tiene esa semana) y devuelve {"creadas": [...], "ya_existian": [...]}.
+    Lanza RuntimeError si Notion responde con un error.
+    """
+    _require_config()
+    if not settings.SEMANA_INSUMO_FAMILIAR_DATA_SOURCE_ID:
+        raise RuntimeError("SEMANA_INSUMO_FAMILIAR_DATA_SOURCE_ID no está configurado.")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        # Fecha de la semana, para el nombre "<fecha> x <insumo>" que ya usan
+        # las filas existentes.
+        resp = await client.get(f"{NOTION_API}/pages/{semana_id}", headers=_headers())
+        if resp.status_code >= 400:
+            raise RuntimeError(f"No se pudo leer la Semana ({resp.status_code}): {resp.text[:200]}")
+        fecha = _title_text(resp.json().get("properties", {}).get("Semana")) or ""
+
+        # Filas que esta semana ya tiene, para no duplicar si la herramienta
+        # se llama dos veces.
+        existentes: set[str] = set()
+        body: dict = {
+            "page_size": 100,
+            "filter": {"property": "Semana", "relation": {"contains": semana_id}},
+        }
+        while True:
+            resp = await client.post(
+                f"{NOTION_API}/data_sources/{settings.SEMANA_INSUMO_FAMILIAR_DATA_SOURCE_ID}/query",
+                headers=_headers(),
+                json=body,
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Notion respondió {resp.status_code}: {resp.text[:300]}")
+            data = resp.json()
+            for row in data.get("results", []):
+                for iid in _relation_ids(row["properties"].get("Insumo")):
+                    existentes.add(iid.replace("-", ""))
+            if not data.get("has_more"):
+                break
+            body["start_cursor"] = data["next_cursor"]
+
+        creadas: list[str] = []
+        ya_existian: list[str] = []
+        for fila in filas:
+            nombre = fila["insumo_nombre"]
+            if fila["insumo_id"].replace("-", "") in existentes:
+                ya_existian.append(nombre)
+                continue
+            props: dict = {
+                "Nombre": {"title": [{"text": {"content": f"{fecha} x {nombre}".strip()}}]},
+                "Semana": {"relation": [{"id": semana_id}]},
+                "Insumo": {"relation": [{"id": fila["insumo_id"]}]},
+            }
+            cantidad = (fila.get("cantidad") or "").strip()
+            if cantidad:
+                props["Cantidad"] = {"rich_text": [{"text": {"content": cantidad}}]}
+            unidad = (fila.get("unidad") or "").strip().lower()
+            if unidad in _UNIDADES_FAMILIAR:
+                props["Unidad"] = {"select": {"name": unidad}}
+            resp = await client.post(
+                f"{NOTION_API}/pages",
+                headers=_headers(),
+                json={
+                    "parent": {
+                        "type": "data_source_id",
+                        "data_source_id": settings.SEMANA_INSUMO_FAMILIAR_DATA_SOURCE_ID,
+                    },
+                    "properties": props,
+                },
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(
+                    f"No se pudo crear la fila de {nombre} ({resp.status_code}): {resp.text[:200]}"
+                )
+            creadas.append(nombre)
+    return {"creadas": creadas, "ya_existian": ya_existian}

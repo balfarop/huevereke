@@ -101,11 +101,18 @@ def _status_for_tool(tool_name: str) -> Optional[str]:
     return "Trabajando en tu menú…"
 
 
-# Una pregunta que habla de revisar/confirmar la propuesta, el reporte o la
-# lista de compras exige que el usuario YA haya visto ese contenido (ver
-# _violacion_reporte_visible).
+# Una pregunta que habla de revisar/confirmar la propuesta, el menú, el
+# reporte o la lista de compras exige que el usuario YA haya visto ese
+# contenido. Además de las palabras clave, se detecta la referencia con
+# demostrativo ("este menú", "esta propuesta", "estos platos"): señala algo
+# que supuestamente ya se mostró. En una corrida real el agente preguntó
+# "¿Seguimos con este menú…?" sin haber nombrado un solo plato, y esa frase
+# no coincidía con las palabras clave. Un artículo ("la propuesta del 20 de
+# octubre fue: …") NO cuenta: ahí el contenido suele ir dentro de la propia
+# pregunta.
 _PREGUNTA_SOBRE_REPORTE = re.compile(
-    r"reporte|versi[oó]n|lista de compras|propuesta detallada|resumen final",
+    r"reporte|versi[oó]n|lista de compras|propuesta detallada|resumen final"
+    r"|\b(?:este|esta|estos|estas)\s+(?:men[uú]|propuesta|platos|pedido|lista)\b",
     re.IGNORECASE,
 )
 # Largo mínimo de un texto para considerarlo "contenido mostrado" (una

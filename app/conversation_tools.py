@@ -1,5 +1,5 @@
 """
-Tres herramientas de sesión — a diferencia de web_context_tools.py y
+Cuatro herramientas de sesión — a diferencia de web_context_tools.py y
 menu_cache/sdk_tools.py (servidores construidos UNA sola vez a nivel de
 módulo, sin estado propio de sesión), estas necesitan una
 ConversationSession puntual — por eso build_conversation_tools_server(session)
@@ -24,6 +24,11 @@ por ConversationSession nueva):
   de sus herramientas). La tarjeta la emite agent_service.drain_messages
   leyendo la llamada, no esta herramienta, para conservar el orden real.
 
+- registrar_consumo_familiar: guarda en Semana_Insumo_Familiar lo que se
+  pidió de consumo familiar (frutas) esa semana. Se hace por código porque
+  como paso final de una lista larga el agente lo omitió varias semanas
+  seguidas; es idempotente y no escribe nada en modo prueba.
+
 - guardar_notas_de_prueba: SOLO funciona si session.test_mode es True (lo
   verifica ella misma, no depende de que el agente respete la skill) —
   guarda el resumen curado de una corrida de prueba como sub-página de la
@@ -38,9 +43,14 @@ por ConversationSession nueva):
   no contiene "notion"), así que el bloqueo de modo prueba ni la ve — el
   límite acá es el destino fijo hardcodeado, no un permiso genérico.
 """
+import re
+
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
-from .notion_direct import create_test_notes_page
+from .config import settings
+from .menu_cache import queries
+from .menu_cache.schema import get_connection
+from .notion_direct import create_family_consumption_rows, create_test_notes_page
 
 
 def build_conversation_tools_server(session):
@@ -176,8 +186,86 @@ def build_conversation_tools_server(session):
             ]
         }
 
+    def _texto(msg: str) -> dict:
+        return {"content": [{"type": "text", "text": msg}]}
+
+    @tool(
+        "registrar_consumo_familiar",
+        (
+            "Guarda en Semana_Insumo_Familiar los insumos de consumo "
+            "familiar (frutas) que SÍ se van a pedir esta semana, en una "
+            "sola llamada. Es parte OBLIGATORIA del paso 7: llámala justo "
+            "después de crear la entrada de Semanas (con su id o URL en "
+            "`semana_id`) y ANTES de cerrar_conversacion. `items` es una "
+            "lista de {\"insumo\": nombre tal como está en Insumos, "
+            "\"cantidad\": texto (ej. \"2\", \"2.5\"), \"unidad\": "
+            "kg / unidad / caja / cajita / gramos / mano (opcional)}. "
+            "Incluye solo lo que se pide esta semana, no lo que el usuario "
+            "dijo que ya tiene en casa. No duplica filas si la llamas dos "
+            "veces. En modo prueba no escribe nada."
+        ),
+        {"semana_id": str, "items": list},
+    )
+    async def registrar_consumo_familiar(args: dict) -> dict:
+        if session.test_mode:
+            return _texto(
+                "Modo prueba: no se guardó el consumo familiar (es "
+                "intencional). Sigue con el flujo normal."
+            )
+        crudo = str(args.get("semana_id") or "")
+        hexid = re.sub(r"[^0-9a-fA-F]", "", crudo.split("?")[0].split("/")[-1])[-32:]
+        if len(hexid) != 32:
+            return _texto(
+                "No pude leer el id de la Semana en `semana_id`; pásame el "
+                "id o la URL que devolvió notion-create-pages."
+            )
+        semana_id = queries._canon_id(hexid)
+        items = [i for i in (args.get("items") or []) if isinstance(i, dict) and i.get("insumo")]
+        if not items:
+            return _texto("`items` viene vacío: no hay nada que registrar.")
+
+        conn = get_connection(settings.MENU_CACHE_DB_PATH)
+        try:
+            encontrados, faltantes = queries.resolver_insumos(conn, [str(i["insumo"]) for i in items])
+        finally:
+            conn.close()
+        filas = [
+            {
+                "insumo_id": encontrados[str(i["insumo"])]["id"],
+                "insumo_nombre": encontrados[str(i["insumo"])]["nombre"],
+                "cantidad": str(i.get("cantidad") or ""),
+                "unidad": str(i.get("unidad") or ""),
+            }
+            for i in items
+            if str(i["insumo"]) in encontrados
+        ]
+        try:
+            resultado = await create_family_consumption_rows(semana_id, filas) if filas else {"creadas": [], "ya_existian": []}
+        except Exception as exc:  # noqa: BLE001
+            return _texto(
+                f"No se pudo guardar el consumo familiar ({exc}). Avísale al "
+                "usuario en una frase que quedó pendiente."
+            )
+        partes = []
+        if resultado["creadas"]:
+            partes.append("Guardadas: " + ", ".join(resultado["creadas"]) + ".")
+        if resultado["ya_existian"]:
+            partes.append("Ya existían (no se duplicaron): " + ", ".join(resultado["ya_existian"]) + ".")
+        if faltantes:
+            partes.append(
+                "NO están en el catálogo de Insumos, no se guardaron: "
+                + ", ".join(faltantes)
+                + ". Pregúntale al usuario si es otro nombre de un insumo existente."
+            )
+        return _texto(" ".join(partes) or "No se guardó nada.")
+
     return create_sdk_mcp_server(
         name="conversation",
         version="0.1.0",
-        tools=[cerrar_conversacion, guardar_notas_de_prueba, mostrar_reporte],
+        tools=[
+            cerrar_conversacion,
+            guardar_notas_de_prueba,
+            mostrar_reporte,
+            registrar_consumo_familiar,
+        ],
     )
