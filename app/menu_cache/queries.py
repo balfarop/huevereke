@@ -204,7 +204,20 @@ def receta_insumo_ensalada(conn: sqlite3.Connection) -> list[dict]:
 def frecuencia_consumo_familiar(conn: sqlite3.Connection, semanas: int = 6) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT i.nombre AS insumo_nombre, COUNT(DISTINCT sif.semana_id) AS semanas_distintas
+        SELECT
+            i.nombre AS insumo_nombre,
+            COUNT(DISTINCT sif.semana_id) AS semanas_distintas,
+            -- Última cantidad registrada con valor (puede ser de una semana
+            -- anterior a la ventana): sirve como cantidad habitual cuando el
+            -- usuario no dice otra. Las semanas viejas sin cantidad se saltan.
+            (SELECT x.cantidad FROM semana_insumo_familiar x
+               JOIN semanas sx ON sx.id = x.semana_id
+              WHERE x.insumo_id = i.id AND TRIM(COALESCE(x.cantidad, '')) <> ''
+              ORDER BY sx.fecha DESC LIMIT 1) AS cantidad_habitual,
+            (SELECT x.unidad FROM semana_insumo_familiar x
+               JOIN semanas sx ON sx.id = x.semana_id
+              WHERE x.insumo_id = i.id AND TRIM(COALESCE(x.cantidad, '')) <> ''
+              ORDER BY sx.fecha DESC LIMIT 1) AS unidad_habitual
         FROM semana_insumo_familiar sif
         JOIN insumos i ON i.id = sif.insumo_id
         WHERE sif.semana_id IN (

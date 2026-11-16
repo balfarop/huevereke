@@ -156,8 +156,11 @@ async def combos_ensalada(args: dict) -> dict:
     (
         "Frecuencia de insumos de consumo familiar (Semana_Insumo_Familiar) "
         "en las últimas N semanas (por defecto 6), contando en cuántas "
-        "semanas distintas aparece cada insumo. Útil como apoyo en el "
-        "paso 5."
+        "semanas distintas aparece cada insumo, y trae además "
+        "cantidad_habitual / unidad_habitual (la última cantidad "
+        "registrada de ese insumo): úsalas como cantidad de cada fruta de "
+        "consumo familiar cuando el usuario no indique otra. Útil en el "
+        "paso 4d y el paso 5."
     ),
     {"semanas": int},
 )
